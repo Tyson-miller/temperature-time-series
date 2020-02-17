@@ -1,0 +1,268 @@
+---
+title: "Trend Analysis of Central England Temperature Data"
+author: "Tyson Miller"
+date: "12/5/2019"
+header-includes:
+    - \usepackage{setspace}\doublespacing
+output:
+  pdf_document: default
+  word_document: default
+bibliography: STAT26100FINAL.bib
+biblio-style: "apa"
+---
+
+```{r setup, include=FALSE}
+library(MASS)
+library(gridExtra)
+library(tidyverse)
+library(mosaic)
+library(broom)
+library(ggplot2)
+library(GGally)
+library(car)
+library(dplyr)
+library(astsa)
+library(pracma)
+library(aTSA)
+library(Kendall)
+# Set numerical output display parameters
+options(width=70, digits=4, scipen=8)
+# Set R output size a bit smaller than default
+knitr::opts_chunk$set(size='small', prompt=FALSE, comment="")
+# set plot theme to black and white
+ggplot2::theme_set(ggplot2::theme_bw())
+ggplot2::theme_update(panel.grid.major = ggplot2::element_line(colour = "grey75"))
+```
+
+## 1. Introduction
+Over the past few decades, global warming has become an increasingly critical issue as we are already experiencing the early effects and beginning to speculate the later, much more dire effects. The Central England temperature series is the longest instrumental temperature time series, making it a valuable tool to discuss long-term climate change. The CET data is a measurement of average seasonal temperature in a region representative of Central England every year dating back to 1659. The seasons are Winter, Spring, Summer and Fall and the measurements are recorded as the average of the 3 monthly averages corresponding to each season. December-January-February represents Winter, March-April-May represents Spring, June-July-August represents Summer, and September-November-December represents Fall. By taking the average of the four seasonal columns, we can get a time series of average temperature per year and by using time series analysis techniques we can get a sense of the long-term trend, if there is one, in Central England temperature variation. Given the importance of global warming, our focus will be to explore the issue of estimation of the trend component. Our goal is to investigate the trend in this time series data and, if the trend exists, try and find the best model to understand this trend. Trend models for this data have been discussed thoroughly with many different possibilities suggested however they mostly all use regression methods. Some of these, which we will make explicit references to are, the linear trend model suggested by @jones1992 and @jones1997, the quadratic trend model suggested by @benner1999 and @harvey2003, and the cubic trend model suggested by @harvey2003 and @zhang2011.
+
+```{r, echo=FALSE}
+data = read.table("England_temp_timeseries.txt", col.names = c("Year", "Winter", "Spring", "Summer", "Fall"), skip = 2)
+data$Annual = rowMeans(data[2:5])
+winter_data = ts(data["Winter"][c(2:361), 1],start = 1660)
+spring_data = ts(data["Spring"][,1],start = 1659)
+summer_data = ts(data["Summer"][,1],start = 1659)
+fall_data = ts(data["Fall"][c(1:360),1],start = 1659)
+annual_data = ts(data["Annual"][c(2:360),1], start = 1660)
+
+```
+
+```{r, echo=FALSE}
+plot(annual_data, main = "Central England Annual Average Temperature", xlab = "Time (years)", ylab = "Temperature (Celsius)")
+lines(ksmooth(time(annual_data), annual_data, "normal", bandwidth=8), lwd=2, col= 'blue')
+lines(smooth.spline(time(annual_data), annual_data, spar=1), lwd=2, col='red')
+lines(smooth.spline(time(annual_data), annual_data, spar=2), lwd=2, col='green')
+legend('bottomright', legend=c("Normal Kernel", "Cubic Spline", "Linear Spline"), col = c("blue", "red", "green"), lty = 1)
+```
+
+## 2. Analysis of Annual Trend
+The first thing we notice about this time series is that it does not appear to be stationary. Looking at the moving average smoother (blue) using a normal kernel function, there seems to be a clear upward trend over time and especially in the last 20 years but it is somewhat hard to decipher visually and will require more in-depth analysis. Furthermore, looking at the spline method smooth curve (red) we can see that the long-term trend might be best fit by a cubic or that there are three periods of temperature change between 1660 and 2019. If we increase the smoothing paramater and smooth again using spline method (green) we can see that even a long-term linear trend looks possible like @jones1997 and @jones1992 postulated. We will begin by detrending the data in wach of the three forms suggested by the previous authors and compare their models using 
+
+
+
+```{r, echo=FALSE}
+time_data = (time(annual_data) - 1659)
+reg <- lm(annual_data~time_data, na.action = NULL)
+detrended_data = resid(reg)
+
+reg2 <- lm(annual_data~time_data + I(time_data^2))
+detrended_data2 = resid(reg2)
+
+
+reg3 <- lm(annual_data~time_data + I(time_data^2) + I(time_data^3))
+detrended_data3 = resid(reg3)
+
+par(mfrow = c(3,1))
+plot(detrended_data, main = "Linear Detrended Data", xlab = "Time (years)", ylab = "Residuals")
+
+plot(detrended_data, main = "Quadratic Detrended Data", xlab = "Time (years)", ylab = "Residuals")
+
+plot(detrended_data, main = "Cubic Detrended Data", xlab = "Time (years)", ylab = "Residuals")
+```
+
+All 3 forms of detrended data look pretty similar and all look feasible. Our goal is ultimately to choose one that we feel best models the trend. To do so we will compare the ACF and PACF plots as well as compare some model diagnostic statistics such as the adjusted R-squared values, the BIC values and the histograms of the data. We will also be making references to previous pieces on the matter such as: @jones1997, @jones1992, @benner1999, @harvey2003, and @zhang2011. 
+
+```{r, echo=FALSE}
+par(mfrow = c(2, 2))
+plot(annual_data, main = "Time Series with Linear Trend Line")
+points(time(annual_data),predict.lm(reg),type='l',col='red')
+
+acf(detrended_data)
+acf(detrended_data, type = "partial")
+qqnorm(detrended_data, main = "Normal Q-Q Plot Linear trend model")
+```
+```{r, echo=FALSE}
+summary(reg)
+```
+
+```{r, echo=FALSE}
+par(mfrow = c(2, 2))
+plot(annual_data, main = "Time Series with Quadratic Trend Line")
+points(time(annual_data),predict.lm(reg2),type='l',col='red')
+
+acf(detrended_data2)
+acf(detrended_data2, type = "partial")
+qqnorm(detrended_data2, main = "Normal Q-Q Plot Quadratic trend model")
+```
+
+```{r, echo=FALSE}
+summary(reg2)
+```
+
+```{r, echo=FALSE}
+par(mfrow = c(2, 2))
+plot(annual_data, main = "Time Series with Cubic Trend Line")
+points(time(annual_data),predict.lm(reg3),type='l',col='red')
+
+acf(detrended_data3 )
+acf(detrended_data3, type = "partial")
+qqnorm(detrended_data3, main = "Normal Q-Q Plot Cubic trend model")
+```
+
+```{r, echo=FALSE}
+summary(reg3)
+```
+
+Comparing the diagnostics for each of the proposed models, we see that all of the ACF's and PACF's look reasonable and point to some characteristics of stationarity which means that each of the trend models could have successfully described the trend we are interested in. The model diagnostics point to the cubic trend being the preferred model for the trend as the adjusted R-squared value is highest and the BIC lowest for this model. The normal quantile plots suggests that the linear or quadratic model is the best for the trend. The coefficient for time in the quadratic model is not significant while every coefficient in either of the other two models is. Since most of the model diagnostics, specifically the adjusted R-squared value point towards the cubic trend, there is a compelling case to choose this trend model over the others and we will investigate further if this trend is acceptable using spectral analysis. The cubic trend suggests 3 periods in Central England temperature change between 1660 and 2019, a cooling period in early part of the era, followed by a period of flunctuation around the mean, and ending with a warming trend in the latter part of the era into the present. This conclusion is in line with both @benner1999 and @zhang2011. To investigate this further, a spectral analysis would give more insight on different periods in the trend throughout the years. However, at very low frequencies, spectral analysis is not always reliable and since we are considering such few oscillations in global temperature over such a long period of time, a spectral analysis might not yield reliable results.     
+
+
+**MannKendall Test**
+
+Another non-parametric approach to test for trend is to use the MannKendall test put forth by @hirsch1997. This test is used to determine if there is a linear trend in a time series by calculating a test statistic, tau, which is a measurement of the proportion of up-movements against time vs the proportion of down-movements, looking at all possible pairwise time-differences. This test statistic is then compared to a theoretical test statistic to conclude how likely this outcome would have been given there was no trend. One thing to be clear of for this test is that it is a test for a monotonic trend in a time series, which is only 1 of 3 of our postulated models. It can still be useful to see if the time series changes over time monotonically but would not necessarily mean that the linear model is the best fit for this trend as both the quadratic and the cubic fit also indicate some sort of overarching monotonic trend.
+```{r, echo=FALSE}
+MannKendall(annual_data)
+```
+
+```{r, echo=FALSE}
+MKslope <- function(ts) {
+f <- frequency(ts)
+n <- length(ts)/f
+d <- NULL
+for (j in n:2)
+for (k in (j-1):1)
+for (i in 1:f)
+d <- c(d, (ts[i + (j-1)*f] - ts[i + (k-1)*f])/(j-k));
+hist(d, main="individual slope estimates", xlab="slope")
+print(summary(d))
+return(median(na.omit(d)))
+}
+
+MKslope(annual_data)
+```
+
+This test tells us that there is strong evidence of a monotonic trend in this time series. Furthermore, computing the slope estimate for this trend proposed also by @hirsch1997, we get a slope of .002749. Comparing this to our linear regression slope estimate (.002783) we see that these values are very very similar which gives even more evidence in favor of the positive linear model for long term global climate trend.
+
+## Analysis of Seasonal Trends
+
+```{r, echo=FALSE}
+par(mfrow = c(2,2))
+
+plot(winter_data, main = "Winter", xlab = "Time (years)", ylab = "Temperature (Celsius)")
+
+plot(spring_data, main = "Spring", xlab = "Time (years)", ylab = "Temperature (Celsius)")
+
+plot(summer_data, main = "Summer", xlab = "Time (years)", ylab = "Temperature (Celsius)")
+
+plot(fall_data, main = "Fall", xlab = "Time (years)", ylab = "Temperature (Celsius)")
+
+```
+
+Another point of interest when trying to determine the trends in this time series data is to determine trends within specific seasons. It is interesting to note which season is effected most by the overall annual trend and whether or not certain seasons contribute to the warming pattern significantly more than others. To do this, we will proceed with each seasonal time series much like we did with the annual data, except only proceeding with a linear trend fit. We will check the model diagnostics for each seasonal linear trend and apply the non parametric MannKendall test for monotonic trends to see if there is an overall linear trend in any of the data and to compare the slopes with our linear regression methods. Our goal will be to see if any of the seasons have more significance when determining the overall annual linear trend than the others.
+
+```{r, echo=FALSE}
+time_winter_data = (time(winter_data) - 1659)
+winter_reg <- lm(winter_data~time_winter_data, na.action = NULL)
+detrended_winter_data = resid(winter_reg)
+
+time_spring_data = (time(spring_data) - 1659)
+spring_reg <- lm(spring_data~time_spring_data, na.action = NULL)
+detrended_spring_data = resid(spring_reg)
+
+time_summer_data = (time(summer_data) - 1659)
+summer_reg <- lm(summer_data~time_summer_data, na.action = NULL)
+detrended_summer_data = resid(summer_reg)
+
+time_fall_data = (time(fall_data) - 1659)
+fall_reg <- lm(fall_data~time_fall_data, na.action = NULL)
+detrended_fall_data = resid(fall_reg)
+
+par(mfrow = c(2, 2))
+plot(winter_data, main = "Winter Time Series with Linear Trend Line")
+points(time(winter_data),predict.lm(winter_reg),type='l',col='red')
+
+plot(spring_data, main = "Spring Time Series with Linear Trend Line")
+points(time(spring_data),predict.lm(spring_reg),type='l',col='red')
+
+plot(summer_data, main = "Summer Time Series with Linear Trend Line")
+points(time(summer_data),predict.lm(summer_reg),type='l',col='red')
+
+plot(fall_data, main = "Fall Time Series with Linear Trend Line")
+points(time(fall_data),predict.lm(fall_reg),type='l',col='red')
+
+```
+
+```{r, echo=FALSE}
+summary(winter_reg)
+```
+
+```{r, echo=FALSE}
+summary(spring_reg)
+```
+
+```{r, echo=FALSE}
+summary(summer_reg)
+```
+
+```{r, echo=FALSE}
+summary(fall_reg)
+```
+
+```{r, echo=FALSE}
+par(mfrow = c(2,2))
+
+acf(detrended_winter_data)
+acf(detrended_spring_data)
+acf(detrended_summer_data)
+acf(detrended_fall_data)
+```
+
+```{r, echo=FALSE}
+par(mfrow = c(2,2))
+
+qqnorm(detrended_winter_data, main = "Normal Q-Q Plot Winter trend model")
+qqnorm(detrended_spring_data, main = "Normal Q-Q Plot Spring trend model")
+qqnorm(detrended_summer_data, main = "Normal Q-Q Plot Summer trend model")
+qqnorm(detrended_fall_data, main = "Normal Q-Q Plot Fall trend model")
+```
+
+```{r, include=FALSE}
+MannKendall(winter_data)
+MannKendall(spring_data)
+MannKendall(summer_data)
+MannKendall(fall_data)
+```
+
+```{r}
+MKslope(winter_data)
+```
+
+```{r}
+MKslope(spring_data)
+```
+
+```{r}
+MKslope(fall_data)
+```
+
+Based on the results of our analysis, a linear trend is a sufficient model to fit for each of the seasons although it is less significant during the summer months. All of the models diagnostics indicate that the model fits as the Q-Q normal plots are normal and the ACF's all indicate stationarity. Looking at the MannKendall tests, they all indicate a significant monotonic positive slope although much less significant during the summer months. The greatest slope is seen during the winter months followed by fall and then spring and then summer. This tells us that the colder the season, the more affected by the overall warming trend. 
+# Conclusions
+
+Using linear and polynomial regressions to detrend the data, we can get a sense of the overall trend in Central England temperatures. As global warming is a very topical and important issue, many different models have been proposed for the trend in temperatures using the Central England Surface Temperature data. Some of these hypotheses are: a linear trend, (@jones1997 and @jones1992) a quadratic trend, (@benner1999 and @harvey2003) or higher order or cubic trends (@harvey2003 and @zhang2011). In our analysis, we considered all three trends as possible and looked at model diagnostics for each trend model to decide which one accurately described the data. All three were plausible based off of their diagnostics, but the cubic trend accounted for more of the variance in the data while keeping the significance in the coefficients. Because of this, I would say that the cubic fit does describe the data the best which is in line with the theory that there have been three distinct periods of cooling, fluctuation around the mean, and warming argued by @benner1999 and @zhang2011. Analyzing further, we found that by using the MannKendall test for monotonic trends in time series, there is strong evidence of an overall monotonic or linear trend in annual Central England temperatures since 1660. The cubic fit in trend is still consistent with this conclusion as with it, there is still an overarching, small positive trend over time. Using the results from the MannKendall tests which indicated strong evidence for a monotonic trend over time, we analyzed each of the seasonal time series individually to determine which if any experienced this warming trend more significantly than the others. Our results were that the linear warming trend is felt more by the colder months than the warmer months, with winter having the greatest and most significant slope and summer having the lowest and least significant.
+
+
+\newpage
+
+# References
+
+
